@@ -1,6 +1,7 @@
 import LoVe.LoVelib
 import AutograderLib
 import Mathlib.Analysis.Real.Cardinality
+import Mathlib
 
 namespace LoVe
 namespace HW1
@@ -62,16 +63,16 @@ constructing a term. By hovering over `_`, you will see the current logical
 context. -/
 
 @[autogradedProof 1] def B : (α → β) → (γ → α) → γ → β :=
-  sorry
+  fun f g c ↦ f (g (c))
 
 @[autogradedProof 1] def S : (α → β → γ) → (α → β) → α → γ :=
-  sorry
+  fun f g a ↦ f a (g a)
 
 @[autogradedProof 1] def moreNonsense : (γ → (α → β) → α) → γ → β → α :=
-  sorry
+  fun f c b ↦ f c (fun a ↦ b)
 
 @[autogradedProof 1] def evenMoreNonsense : (α → α → β) → (β → γ) → α → β → γ :=
-  sorry
+  fun f g a b ↦ g b
 
 /- ### 1.2 (2 points)
 
@@ -83,7 +84,7 @@ follow the procedure described in the Hitchhiker's Guide.
 Note: Peirce is pronounced like the English word "purse." -/
 
 @[autogradedProof 2] def weakPeirce : ((((α → β) → α) → α) → β) → β :=
-  sorry
+  fun f ↦ f (fun g ↦ g (fun a ↦ f (fun h ↦ a) ) )
 
 /- ## Question 2 (4 points): Typing Derivation
 
@@ -93,7 +94,34 @@ useful. Please refer to the section of the Hitchhiker's Guide that describes
 how to structure typing derivations.
 
 Feel free to introduce abbreviations to avoid repeating large contexts `C`. -/
+/-
 
+-------------------------Var A
+C ⊢ f: (α → β → γ)
+
+-------------------------Var B
+C ⊢ g : (α → β)
+
+-------------------------Var C
+C ⊢ a : α
+
+
+Sorry! I put the Var lines as refrences above so that it doesn't get too messy
+
+
+Var A, Var C                Var B, Var C
+----------------App      ---------------App
+C ⊢ f a: (β → γ)         C ⊢ g a : β
+----------------------------------------------------App
+C ⊢ f a (g a) : γ
+-------------------------------------------------------Fun
+f : α → β → γ, g : α → β ⊢ (fun a ↦ f a (g a)) : (α → γ)
+-------------------------------------------------------Fun
+f : α → β → γ ⊢ (fun g a ↦ f a (g a)) : (α → β) → α → γ
+--------------------------------------------Fun
+⊢ (fun f g a ↦ f a (g a)): (α → β → γ) → (α → β) → α → γ
+
+-/
 
 
 /- ## Question 3 (3 points): Implicit Arguments
@@ -160,11 +188,17 @@ use the notation `xs ++ ys` for `List.append xs ys`. -/
 
 -- write your solution here
 
+def reverse {α: Type} : List α → List α
+| List.nil => List.nil
+| List.cons x xs =>  reverse xs ++ [x]
+
 -- Once you've written your solution, uncomment these test cases and check that
 -- they give the expected outputs
--- #eval reverse [1, 2, 3, 4, 5] -- expected: [5, 4, 3, 2, 1]
--- #eval reverse ([] : List ℕ)  -- expected: []
--- #eval @reverse ℕ []          -- expected: []
+#eval reverse [1, 2, 3, 4, 5] -- expected: [5, 4, 3, 2, 1]
+-- #eval reverse []
+#eval reverse ([] : List ℕ)  -- expected: []
+#eval @reverse ℕ []          -- expected: []
+
 
 /- Notice that when the list argument to `reverse` is empty, it is not clear
 what type should be filled in for `α`. (Try evaluating `reverse []`, without
@@ -204,12 +238,13 @@ def f (x : ℕ) (y : ℕ := 1) (w : ℕ := 2) (z : ℕ) :=
 Change the value of `z` below so that the expression evaluates to `2`. -/
 
 #eval f (z := 3) 1
+#eval f (z := 2) 1
 
 /- ### 3.3 (1 point)
 
 Specify a value for `w` below so that the expression evaluates to `8`. -/
 
-#eval f (y := 3) (x := 1) (z := 1)
+#eval f (y := 3) (x := 1) (z := 1) (w := 5)
 
 /-
 ## Question 4 (5 points): Combining Lists
@@ -228,7 +263,9 @@ Implement a function `meld` that performs this operation.
 
 @[autogradedDef 2, validTactics #[rfl, simp [meld]]]
 def meld {α β γ : Type} : (α → β → γ) → List α → List β → List γ
-  := sorry
+  | _, List.nil, _ => List.nil
+  | _, _, List.nil => List.nil
+  | f, List.cons x xs, List.cons y ys => f x y :: meld f xs ys
 
 /-!
 ### 4.2 (1 point)
@@ -251,7 +288,7 @@ below is to replace `sorry` with a *non-recursive* function.
 -/
 @[autogradedDef 1, validTactics #[rfl]]
 def zip {α β : Type} : List α → List β → List (α × β) :=
-meld sorry
+  fun xs ys ↦ meld (fun a b ↦ (a,b)) xs ys
 
 /- ### 4.3 (1 point)
 
@@ -261,8 +298,9 @@ lists.
 
 Hint: `min : ℕ → ℕ → ℕ` returns the minimum of two numbers. -/
 
+-- Say that the min of length input one and input two equals output length
 -- Replace `True` with your lemma statement. No need to fill in the `sorry`!
-theorem length_meld : True := sorry
+theorem length_meld {α β γ : Type} (x: List α) (y: List β) (f: α → β → γ): min x.length y.length = (meld f x y).length := sorry
 
 /- ### 4.4 (1 point)
 
@@ -277,7 +315,17 @@ produce the pair `(b, a) : β × α`. That is, it reverses the order of a pair. 
 Is this theorem true? If so, explain why, in natural language.
 (You do *not* need to fill in the `sorry`!)
 If not, give a counterexample: that is, provide concrete examples for `xs` and `ys`
-for which this property does not hold. -/
+for which this property does not hold.
+
+This should be true, if you look at the zip function it will truncate both so that the shorter
+list is the length
+Then the zip function just pairs the elements in order where it goes x,y
+ and works that way before swapping to y,x with the swap function
+The other zip function will automatically swap in order of y,x and truncate
+
+-/
+
+
 
 theorem swap_zip {α β : Type} (xs : List α) (ys : List β) :
   (zip xs ys).map Prod.swap = zip ys xs :=
@@ -315,8 +363,29 @@ see if you can find the theorem proved in Mathlib already!
 How is it stated there? Is there syntax you don't understand?
 (There probabably will be.) Try to think of a simpler theorem!
 
+Pi is irrational!
+
+Real Number Pi
+The real number
+π, is defined as twice the value obtained from the existence of a real number
+x satisfying ... 2*x where x is cos(x) = -1
+
+
+Irrational
+A real number
+x
+x is irrational if it is not in the image of the canonical embedding of the rational numbers
+Q
+Q into the real numbers
+R
+
+State this as pi is a real number and not rational
+There exists a real number x such that cos(x) = -1 and 2*x = pi, can use Real.pi
+There does not exist a rational number such that equals pi
 -/
 
 -- Your answer here!
+
+theorem irrational_pi : ¬ ∃ (q:ℚ), (q : ℝ) = Real.pi := sorry
 
 end HW1 end LoVe

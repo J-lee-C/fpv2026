@@ -118,6 +118,8 @@ same effect as the above. Check that they output the same values. -/
 
 -- write your solution here
 
+#eval xs.map f
+
 end
 end LoVe
 
@@ -130,7 +132,8 @@ Define the function `List.mySum` that sums the elements of a
 
 @[autogradedDef 1, validTactics #[rfl, simp [List.mySum]]]
 def List.mySum : List ℕ → ℕ
-:= sorry
+| [] => 0
+| x :: xs => x + xs.mySum
 
 namespace LoVe
 
@@ -141,6 +144,7 @@ the same effect as the one below: -/
 
 #eval List.mySum [1, 2, 3, 4]  -- 10
 -- write your solution here
+#eval [1, 2, 3, 4].mySum
 
 
 /- Dot notation even works for proofs! If `hpq : P ∧ Q`, then `hpq.left : P`
@@ -152,7 +156,7 @@ Write as short of a term mode proof as you can of the
 following lemma, using dot notation at least once: -/
 
 lemma dotAndSwap (P Q R : Prop) (hpq : P ∧ Q ∧ R) : Q ∧ P :=
-sorry
+  ⟨hpq.right.left, hpq.left⟩
 
 /- ### Golf bonus (0 points).
 
@@ -218,8 +222,11 @@ Show that if a function is both commutative and associative,
 then it is left-commutative. -/
 
 @[autogradedProof 1] theorem leftCommutative_of_commutative_associative {α : Type} :
-  ∀ (f : α → α → α), Commutative f ∧ Associative f → LeftCommutative f :=
-  sorry
+  ∀ (f : α → α → α), Commutative f ∧ Associative f → LeftCommutative f := by
+  intro faaa comm_asso a1 a2 a3
+  rw [← comm_asso.right a1 a2 a3 ]
+  rw [comm_asso.left a1 a2]
+  rw [comm_asso.right]
 
 /- ### 2.2 (4 points).
 
@@ -239,16 +246,24 @@ Here are some helpful reminders for the proofs:
 * The `contradiction` tactic can prove any goal (including `False`) if you have
   an "obviously" impossible hypothesis in your context (e.g., `true = false`) -/
 
-def g : sorry := sorry
+def g : (ℕ → ℕ → ℕ) :=
+ fun a b => b^2
 
-@[autogradedProof 1] theorem g_leftCommutative : LeftCommutative g :=
-  sorry
 
-@[autogradedProof 1] theorem g_not_commutative : ¬Commutative g :=
-  sorry
+@[autogradedProof 1] theorem g_leftCommutative : LeftCommutative g := by
+  intro a b c
+  rfl
 
-@[autogradedProof 1] theorem g_not_associative : ¬Associative g :=
-  sorry
+@[autogradedProof 1] theorem g_not_commutative : ¬Commutative g := by
+  intro commg
+  have h := commg 2 3
+  simp [g] at h
+
+
+@[autogradedProof 1] theorem g_not_associative : ¬Associative g := by
+  intro na
+  have h := na 2 3 4
+  simp [g] at h
 
 /- Now that we've seen some properties of left-commutativity in the abstract,
 let's look at its significance in the context that motivated its definition in
@@ -274,10 +289,32 @@ def foldr {α β : Type} : (α → β → β) → β → List α → β
   | f, z, []        => z
   | f, z, (x :: xs) => f x (foldr f z xs)
 
+theorem lemma_help {α β: Type}:
+  ∀ (g : α → β → β) (hg : LeftCommutative g) (z : β) (xs : List α) (x: α),
+  foldr g (g x z) xs = g x (foldr g z xs) := by
+  intro g hg b xs a
+  induction xs with
+  | nil => rfl
+  | cons y ys ih =>
+    simp only [foldr]
+    rw [ih]
+    rw [hg]
+
+
+
 @[autogradedProof 3] theorem foldl_eq_foldr_of_leftCommutative {α β : Type} :
   ∀ (g : α → β → β) (hg : LeftCommutative g) (z : β) (xs : List α),
-  foldl g z xs = foldr g z xs :=
-  sorry
+  foldl g z xs = foldr g z xs := by
+  intro g hg z xs
+  induction xs generalizing z with
+  | nil => rfl
+  | cons x xs ih =>
+    simp only[foldl, foldr]
+    rw [ih]
+    apply lemma_help
+    exact hg
+
+
 
 
 /- ### 2.4 (1 point).
@@ -290,8 +327,13 @@ equal left and right folds, then that function must be left-commutative. -/
 @[autogradedProof 1] theorem leftCommutative_of_foldl_eq_foldr {α β : Type} :
   ∀ (g : α → β → β),
     (∀ (z : β) (xs : List α), foldl g z xs = foldr g z xs) →
-    LeftCommutative g :=
-  sorry
+    LeftCommutative g := by
+    intro g hfold a1 a2 b
+    have h1 := hfold b [a1, a2]
+    simp only [foldl, foldr] at h1
+    exact h1.symm
+
+
 
 /- ## Question (7 points): Heterogeneous Lists
 
@@ -382,9 +424,9 @@ You'll need to complete the type as well as implement the function! -/
 
 @[autogradedDef 1, validTactics #[rfl, simp [HList.append]]]
 -- induction_and_simp 2 2 HList.append]]
-def HList.append {αs βs : List Type} : HList αs → HList βs → sorry
-  := sorry
-
+def HList.append {αs βs : List Type} : HList αs → HList βs → HList (αs ++ βs)
+  | HList.nil, ys => ys
+  | HList.cons x xs, ys => HList.cons x (HList.append xs ys)
 
 /- Heterogeneous lists can be used in conjunction with traditional lists to
 store multi-typed tabular data (similar to Pyret, for those who are familiar).
@@ -421,7 +463,7 @@ definition of a function below that maps `αs` to some `βs : List Type` such th
 
 @[reducible, autogradedDef 1, validTactics #[rfl, simp [columnwiseType]]]
 def columnwiseType (αs : List Type) : List Type :=
-  sorry
+  αs.map fun α => List α
 
 /-
 ### 4.3 (2 points).
@@ -443,7 +485,8 @@ def HList.tl {α αs} : HList (α :: αs) → HList αs
 @[autogradedDef 2, validTactics #[rfl, simp [listHlistToHlistList]]]
 def listHlistToHlistList :
   ∀ {αs : List Type}, List (HList αs) → HList (columnwiseType αs)
-  := sorry
+  | [], rows => HList.nil
+  | _ :: _, rows => HList.cons (rows.map HList.hd) (listHlistToHlistList (rows.map HList.tl))
 
 /- But what about the other direction? We might be tempted to declare a function
 that turns a collection of columns into a collection of rows. That function
@@ -463,7 +506,6 @@ that we're just *defining* the property; we haven't proved it!) -/
 def length_hllh : Prop :=
   ∀ (α β : Type) (t : HList (columnwiseType [α, β])),
   List.length (hlistListToListHlist t) = List.length (HList.hd t)
-
 
 /-
 ### 4.4 (2 points).
@@ -485,8 +527,12 @@ def pickFromSingletonList {τ} : ∀ {xs : List τ}, List.length xs = 1 → τ
   | x :: _, _ => x
 
 @[autogradedProof 2]
-theorem length_hllh_false : ¬ length_hllh :=
-  sorry
+theorem length_hllh_false : ¬ length_hllh := by
+  intro h
+  have hlen := h ℕ Empty ( H[[0],[]] : HList (columnwiseType [ℕ , Empty]))
+  simp [HList.hd] at hlen
+  have row := pickFromSingletonList hlen
+  exact Empty.elim (row.tl.hd)
 
 /- ### 4.5 (1 point).
 
@@ -501,6 +547,13 @@ desire. -/
 
 /-
 Write your answer to part 5 here.
+The only function that we can use here is just the function that returns the empty list
+This is because we need to return something without looking at types and so we can
+just use the empty list
+This must be empty in case we are given the empty list in the table too
+Otherwise there is no input
+There will always be 0 rows since we are empty, but this will fail the length tests
+If we say that all columns must have the same length
 -/
 
 /- A final note! This is not the only possible encoding of a heterogeneous list.

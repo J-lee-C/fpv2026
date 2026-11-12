@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Kalman Gain, Verified</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/white.css">
+<style>
+  :root {
+    --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+    --grid: #e1e0d9; --accent: #2a78d6; --code-bg: #f4f3ef;
+    --r-background-color: var(--surface);
+    --r-main-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --r-heading-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --r-main-color: var(--ink); --r-heading-color: var(--ink);
+    --r-main-font-size: 28px; --r-heading-text-transform: none;
+    --r-heading2-size: 38px; --r-heading1-size: 56px; --r-heading-font-weight: 650;
+    --r-link-color: var(--accent); --r-link-color-hover: #1c5cab;
+    --r-code-font: Consolas, "DejaVu Sans Mono", monospace;
+  }
+  body { background: var(--surface); }
+  .reveal .slides { text-align: left; }
+  .reveal .slides > section { height: 100%; box-sizing: border-box; padding: 6px 4px 0; }
+  .reveal h2 { margin: 0 0 18px; letter-spacing: -0.01em; }
+  .reveal ul { margin: 0 0 0 1.1em; }
+  .reveal li { margin: 0 0 14px; line-height: 1.32; }
+  .reveal p { margin: 0 0 12px; line-height: 1.35; }
+  .reveal .intuition {
+    position: absolute; left: 4px; right: 120px; bottom: 40px; margin: 0;
+    padding: 8px 14px; border-left: 4px solid var(--accent); background: #eef4fc;
+    font-size: 21px; color: var(--ink);
+  }
+  .reveal .from {
+    position: absolute; left: 4px; right: 120px; bottom: 8px; margin: 0;
+    font-size: 15px; color: var(--muted);
+  }
+  .reveal .from a { color: var(--muted); text-decoration: underline; }
+  .reveal img.fig { display: block; margin: 6px auto 0; max-width: 100%; max-height: 400px; }
+  .reveal img.fig.tall { max-height: 545px; }
+  .reveal img.fig.mid { max-height: 375px; }
+  .reveal img.fig.pair { max-height: 330px; }
+  .reveal table.tight { font-size: 19px; }
+  .reveal table.tight th, .reveal table.tight td { padding: 5px 8px; }
+  .reveal pre {
+    width: 100%; margin: 6px 0 10px; box-shadow: none; font-size: 20px;
+  }
+  .reveal pre.long { font-size: 16px; }
+  .reveal pre code {
+    background: var(--code-bg); color: var(--ink); padding: 12px 16px; border-radius: 6px;
+    line-height: 1.42; max-height: 470px; font-family: var(--r-code-font);
+    border: 1px solid var(--grid);
+  }
+  .reveal pre.output { font-size: 16.5px; }
+  .reveal pre.output code { line-height: 1.32; }
+  .reveal code { font-family: var(--r-code-font); font-size: 0.9em; }
+  .reveal .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: start; }
+  .reveal .cols.wide-right { grid-template-columns: 0.8fr 1.2fr; }
+  .reveal .label { font-size: 17px; font-weight: 650; color: var(--ink2); text-transform: uppercase;
+    letter-spacing: 0.04em; margin: 0 0 6px; }
+  .reveal table { font-size: 21px; border-collapse: collapse; width: 100%; margin: 0; }
+  .reveal table th { color: var(--ink2); font-weight: 650; border-bottom: 1px solid #c3c2b7; }
+  .reveal table th, .reveal table td { padding: 7px 10px; border-bottom: 1px solid var(--grid);
+    vertical-align: top; text-align: left; }
+  .reveal .small { font-size: 23px; }
+  .reveal .muted { color: var(--ink2); }
+  .reveal .src { font-size: 24px; color: var(--ink2); }
+  .reveal .here { background: #f4f3ef; border-radius: 6px; padding: 12px 16px; font-size: 25px;
+    margin-top: 16px; }
+  .reveal .title-slide h1 { margin-top: 150px; font-size: 60px; line-height: 1.1; }
+  .reveal .title-slide .subtitle { font-size: 30px; color: var(--ink2); margin-top: 18px; }
+  .reveal .title-slide .meta { font-size: 22px; color: var(--muted); margin-top: 48px; }
+  .reveal .katex { font-size: 1.05em; white-space: nowrap; }
+  .reveal .missing-fig { border: 1px dashed #d03b3b; padding: 18px; color: #d03b3b; }
+</style>
+</head>
+<body>
+<div class="reveal"><div class="slides">
+
+<!-- 1. Title -->
+<section class="title-slide">
+  <h1>The Kalman Gain, Verified</h1>
+  <p class="subtitle">From a navigator's sighting to a hidden switch in a molecular model</p>
+  <p class="meta">Jeffrey Lee &middot; Lean 4 + Mathlib &middot; %%n_spec%% machine-checked results</p>
+</section>
+
+<!-- 2. The problem as a story -->
+<section>
+  <h2>A navigator and a lookout</h2>
+  <ul>
+    <li>A ship's navigator predicts the position $\hat x^-$ from speed and heading. The prediction misses by an error $e$ with variance $P$.</li>
+    <li>A lookout sights a landmark and reports a position $y$. The sighting misses by a noise $v$ with variance $R$.</li>
+    <li>The navigator blends the two with a gain $K$: $\;\hat x = \hat x^- + K\,(y - \hat x^-)$.</li>
+    <li>The question of this talk: which $K$ makes the blend as accurate as possible, and can a computer check the answer?</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> trust each source in proportion to how precise it is.</p>
+  <p class="from">From: the classic motivating story for the Kalman filter.</p>
+</section>
+
+<!-- 3. Background -->
+<section>
+  <h2>Random variables and variance</h2>
+  <ul>
+    <li>A random variable is a number that depends on chance: the prediction error $e$, the sighting noise $v$.</li>
+    <li>Its mean is $\mathbb{E}[e]$. Its variance is the average squared distance from the mean:
+      $$\operatorname{Var}(e) = \mathbb{E}\big[(e - \mathbb{E}[e])^2\big].$$</li>
+    <li>In this talk $P = \operatorname{Var}(e)$ and $R = \operatorname{Var}(v)$. A small variance means a precise source.</li>
+    <li>In Lean, variance is Mathlib's <code>ProbabilityTheory.variance</code>, defined for any function on a probability space.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> variance measures how far a source typically misses, in squared units.</p>
+  <p class="from">From: standard probability; Mathlib, Probability/Variance.</p>
+</section>
+
+<section>
+  <h2>Independence and the two variance rules</h2>
+  <ul>
+    <li>$e$ and $v$ are independent: knowing one tells you nothing about the other.</li>
+    <li>Scaling rule: $\operatorname{Var}(c\,X) = c^2 \operatorname{Var}(X)$.</li>
+    <li>Sum rule, for independent $X$ and $Y$: $\operatorname{Var}(X + Y) = \operatorname{Var}(X) + \operatorname{Var}(Y)$.</li>
+    <li>In Mathlib these are <code>variance_smul</code> and <code>IndepFun.variance_add</code>. The sum rule needs finite second moments, written <code>MemLp X 2 μ</code>.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> independent errors do not cancel on average, so their variances add.</p>
+  <p class="from">From: Mathlib, Probability/Variance (<code>variance_smul</code>, <code>IndepFun.variance_add</code>).</p>
+</section>
+
+<section>
+  <h2>The update rule: the gain is a trust dial</h2>
+  <p>$\hat x = \hat x^- + K\,(y - \hat x^-)$: $K = 0$ ignores the lookout, $K = 1$ ignores the navigator.
+    Example: $P = %%f1_P%%$, $R = %%f1_R%%$, prediction $%%f1_pred%%$, sighting $%%f1_y%%$.
+    The best gain $K = %%f1_K%%$ gives the estimate $%%f1_fused%%$ with variance $%%f1_var%%$.</p>
+  <img class="fig" src="figures/fig01_fusion.png" alt="Figure 1: prediction, sighting and fused estimate as Gaussian curves">
+  <p class="intuition"><b>Intuition:</b> the fused estimate is sharper than either source alone.</p>
+  <p class="from">From: make_figures.py, figure 1.</p>
+</section>
+
+<!-- 4. The canonical proof -->
+<section>
+  <h2>The new error and its variance</h2>
+  <ul>
+    <li>Write $e = x - \hat x^-$ and $y = x + v$. The new error is
+      $$x - \hat x = (1-K)\,e - K\,v.$$</li>
+    <li>Scaling rule, then sum rule:
+      $$f(K) = \operatorname{Var}\big((1-K)e - Kv\big) = (1-K)^2 P + K^2 R.$$</li>
+    <li>This is the student's definition <code>postVar P R K</code> (Part 1). Part 5 proves the formula from random variables (result A).</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> the gain trades prediction error against sighting noise.</p>
+  <p class="from">From: Kalman.lean, Part 1 (<code>postVar</code>) and Part 5 (<code>variance_update</code>).</p>
+</section>
+
+<section>
+  <h2>Minimize by calculus</h2>
+  <p>$f'(K) = -2(1-K)P + 2KR = 0 \;\Longrightarrow\; K^* = \dfrac{P}{P+R}$, and $f''(K) = 2(P+R) > 0$, so $K^*$ is the minimum.</p>
+  <img class="fig" src="figures/fig02_parabola.png" alt="Figure 2: the parabola f(K) with its minimum at K star and the shaded gap">
+  <p class="intuition"><b>Intuition:</b> the best gain balances the two error sources.</p>
+  <p class="from">From: textbook derivation; make_figures.py, figure 2 ($P = %%f1_P%%$, $R = %%f1_R%%$).</p>
+</section>
+
+<section>
+  <h2>The minimum: precisions add</h2>
+  <p>$f(K^*) = \dfrac{PR}{P+R}$, so $\dfrac{1}{f(K^*)} = \dfrac{1}{P} + \dfrac{1}{R}$.
+    Hence $f(K^*) \le P$ and $f(K^*) \le R$: the blend beats both sources.</p>
+  <img class="fig" src="figures/fig03_ratio.png" alt="Figure 3: optimal gain and minimum variance against the noise ratio R over P">
+  <p class="intuition"><b>Intuition:</b> precision, one over variance, is what adds up.</p>
+  <p class="from">From: Kalman.lean, Part 2 (<code>optVar_le</code>); make_figures.py, figure 3.</p>
+</section>
+
+<!-- 5. Linear-optimal vs globally optimal -->
+<section>
+  <h2>Linear-optimal vs globally optimal</h2>
+  <ul>
+    <li>$K^*$ is the best <em>linear</em> update for any error distributions with variances $P$ and $R$: only second moments enter.</li>
+    <li>If $e$ and $v$ are Gaussian, the linear update is the best of <em>all</em> estimators: it is the exact posterior mean.</li>
+    <li>Outliers (heavy tails) break this: one wild sighting drags the linear blend far off.</li>
+    <li>Multimodal errors break it too: with two basins, the linear blend can land between the modes, where the state never is.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> variance sees only the spread of an error, not its shape.</p>
+  <p class="from">From: standard estimation theory; every Lean result here is a second-moment statement.</p>
+</section>
+
+<!-- 6. Lean background -->
+<section>
+  <h2>What a proof assistant checks</h2>
+  <ul>
+    <li>You write definitions, statements and proofs. Lean's small kernel checks every proof step; a proof either checks or it does not.</li>
+    <li>A statement is a type in <code>Prop</code>, and a proof is a term of that type. Data such as <code>ℝ</code>, <code>ℕ</code> and functions live in <code>Type</code>.</li>
+    <li>Lean cannot check that a statement means what you intended. Reading the definitions and statements stays human work.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> Lean guarantees that the proof matches the statement, not that the statement matches your idea.</p>
+  <p class="from">From: Lean 4 documentation (Theorem Proving in Lean 4).</p>
+</section>
+
+<section>
+  <h2>Real numbers: noncomputable, and $x / 0 = 0$</h2>
+  <ul>
+    <li>Mathlib builds <code>ℝ</code> from Cauchy sequences. Lean cannot run computations on it, so definitions over <code>ℝ</code> are <code>noncomputable</code>.</li>
+    <li>Division is total: <code>x / 0 = 0</code>. So <code>gain P R = P / (P + R)</code> is defined even when $P + R = 0$.</li>
+    <li>Theorems therefore carry hypotheses such as <code>hP : 0 ≤ P</code> and <code>hR : 0 &lt; R</code>, which give $P + R > 0$ (<code>denom_pos</code>).</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> every function is total, so side conditions move into hypotheses.</p>
+  <p class="from">From: Mathlib (<code>Real</code>, <code>div_zero</code>); Kalman.lean, Part 2.</p>
+</section>
+
+<section>
+  <h2>Type classes power the tactics</h2>
+  <ul>
+    <li><code>ℝ</code> is registered as a field and an ordered ring: <code>Field ℝ</code>, <code>LinearOrder ℝ</code>, <code>IsStrictOrderedRing ℝ</code>.</li>
+    <li><code>ring</code> proves identities in any commutative ring. <code>field_simp</code> clears denominators it can prove nonzero.</li>
+    <li><code>linarith</code> combines linear inequalities; <code>nlinarith</code> also multiplies hypotheses; <code>positivity</code> proves $0 &lt; t$ or $0 \le t$.</li>
+    <li>Each tactic works for every type with the right instances, not only for <code>ℝ</code>.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> algebra is proved once per structure and reused for every instance.</p>
+  <p class="from">From: Mathlib tactic documentation.</p>
+</section>
+
+<!-- 7. How Lean proved it -->
+<section>
+  <h2>The definitions in Lean</h2>
+  <div class="cols wide-right">
+    <div>
+      <p class="label">Paper</p>
+      <p>$f(K) = (1-K)^2 P + K^2 R$</p>
+      <p>$K^* = \dfrac{P}{P+R}$</p>
+      <p>$f(K^*) = \dfrac{PR}{P+R}$</p>
+    </div>
+    <div>
+      <p class="label">Lean (Part 1, by the student)</p>
+<pre><code class="lean">def postVar (P R K : ℝ) : ℝ :=
+  (1 - K)^2 * P + K^2 * R
+
+def gain (P R : ℝ) : ℝ := P / (P + R)
+
+def optVar (P R : ℝ) : ℝ := P * R / (P + R)</code></pre>
+    </div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> definitions are the part a human must check by eye.</p>
+  <p class="from">From: Kalman.lean, Part 1 (written by the student, copied verbatim).</p>
+</section>
+
+<section>
+  <h2>Completing the square instead of calculus</h2>
+  <p>Calculus needs derivatives and a convexity argument. Lean prefers one algebraic identity:
+    $$f(K) = (P+R)\,(K - K^*)^2 + \frac{PR}{P+R}.$$
+    A square is never negative, so $f(K) \ge PR/(P+R)$, with equality exactly when $K = K^*$.</p>
+<pre><code class="lean">theorem complete_square (P R K : ℝ) (hP : 0 ≤ P) (hR : 0 &lt; R) :
+    postVar P R K = (P + R) * (K - gain P R)^2 + optVar P R := by
+  unfold gain optVar postVar
+  have pos := denom_pos P R hP hR
+  field_simp
+  ring</code></pre>
+  <p class="intuition"><b>Intuition:</b> one identity gives both optimality and uniqueness.</p>
+  <p class="from">From: Kalman.lean, Part 2 (<code>complete_square</code>, the student's proof).</p>
+</section>
+
+<section>
+  <h2>The lemma ladder</h2>
+  <img class="fig tall" src="figures/fig09_dependencies.png" alt="Figure 9: dependency graph of the Lean theorems">
+  <p class="intuition"><b>Intuition:</b> each rung is small enough to check in one step.</p>
+  <p class="from">From: make_figures.py parses Kalman.lean: %%f9_nodes%% theorems of Parts 2, 4, 4b, 4c and 5, %%f9_edges%% citations (figure 9).</p>
+</section>
+
+<section>
+  <h2>Optimal: paper vs Lean</h2>
+  <div class="cols wide-right">
+    <div class="small">
+      <p class="label">Paper</p>
+      <p>Completing the square: $f(K) = (P+R)(K-K^*)^2 + f(K^*)$.</p>
+      <p>$P + R > 0$ and $(K-K^*)^2 \ge 0$, so the first term is $\ge 0$ and $f(K^*) \le f(K)$.</p>
+    </div>
+    <div>
+      <p class="label">Lean (Part 2, by the student)</p>
+<pre class="long"><code class="lean">theorem gain_optimal (P R K : ℝ) (hP : 0 ≤ P) (hR : 0 &lt; R) :
+    postVar P R (gain P R) ≤ postVar P R K := by
+  have comp_sq := complete_square P R K hP hR
+  have pvg := postVar_gain P R hP hR
+  rw [comp_sq]
+  rw [pvg]
+  rw [le_add_iff_nonneg_left]
+  have pos := denom_pos P R hP hR
+  have square_plus := sq_nonneg (K - gain P R)
+  have pos_or_zero := le_of_lt pos
+  apply mul_nonneg pos_or_zero square_plus</code></pre>
+    </div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> the Lean proof follows the paper proof line by line.</p>
+  <p class="from">From: Kalman.lean, Part 2 (<code>gain_optimal</code>, the student's proof).</p>
+</section>
+
+<section>
+  <h2>Unique: paper vs Lean</h2>
+  <div class="cols wide-right">
+    <div class="small">
+      <p class="label">Paper</p>
+      <p>If $f(K) = f(K^*)$, then $(P+R)(K-K^*)^2 = 0$.</p>
+      <p>Since $P + R > 0$, the factor $(K-K^*)^2$ is $0$, so $K = K^*$.</p>
+    </div>
+    <div>
+      <p class="label">Lean (Part 2, by the student)</p>
+<pre class="long"><code class="lean">theorem gain_unique (P R K : ℝ) (hP : 0 ≤ P) (hR : 0 &lt; R)
+    (h : postVar P R K = postVar P R (gain P R)) : K = gain P R := by
+  have pos := denom_pos P R hP hR
+  have comp_sq := complete_square P R K hP hR
+  have pvg := postVar_gain P R hP hR
+  rw[pvg] at h
+  rw[comp_sq] at h
+  rw[add_eq_right] at h
+  cases mul_eq_zero.mp h with
+  |inl impos => linarith
+  |inr solve =>
+    have zero : K - gain P R = 0 := by exact eq_zero_of_pow_eq_zero solve
+    apply sub_eq_zero.mp zero</code></pre>
+    </div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> a product is zero only when a factor is, and $P + R$ never is.</p>
+  <p class="from">From: Kalman.lean, Part 2 (<code>gain_unique</code>, the student's proof).</p>
+</section>
+
+<section>
+  <h2>The blend beats both sources: paper vs Lean</h2>
+  <div class="cols wide-right">
+    <div class="small">
+      <p class="label">Paper</p>
+      <p>$\dfrac{PR}{P+R} \le P \iff PR \le P(P+R)$, true because $R \le P + R$ and $P \ge 0$.</p>
+      <p>$\dfrac{PR}{P+R} \le R \iff PR \le R(P+R) \iff 0 \le R^2$.</p>
+    </div>
+    <div>
+      <p class="label">Lean (Part 2, by the student)</p>
+<pre><code class="lean">theorem optVar_le (P R : ℝ) (hP : 0 ≤ P) (hR : 0 &lt; R) :
+    optVar P R ≤ P ∧ optVar P R ≤ R := by
+  have pos := denom_pos P R hP hR
+  unfold optVar
+  field_simp
+  constructor
+  · have R_plus_P: R≤P+R := by linarith
+    exact mul_le_mul_of_nonneg_left R_plus_P hP
+  · nlinarith</code></pre>
+    </div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> clearing the positive denominator turns each claim into an inequality between products.</p>
+  <p class="from">From: Kalman.lean, Part 2 (<code>optVar_le</code>, the student's proof).</p>
+</section>
+
+<section>
+  <h2>Paper vs Lean: what changed</h2>
+  <table>
+    <tr><th>Step</th><th>Paper</th><th>Lean</th></tr>
+    <tr><td>Find the best gain</td><td>set $f'(K) = 0$</td><td>complete the square (<code>complete_square</code>)</td></tr>
+    <tr><td>Show it is a minimum</td><td>$f'' > 0$</td><td>a square is $\ge 0$ (<code>sq_nonneg</code>)</td></tr>
+    <tr><td>Uniqueness</td><td>strict convexity</td><td>$(P+R)(K-K^*)^2 = 0 \Rightarrow K = K^*$ (<code>eq_zero_of_pow_eq_zero</code>)</td></tr>
+    <tr><td>Side conditions</td><td>"assume $P + R \ne 0$"</td><td>hypotheses <code>0 ≤ P</code>, <code>0 &lt; R</code>; otherwise <code>x / 0 = 0</code></td></tr>
+    <tr><td>Variance rules</td><td>quoted from a textbook</td><td>proved in Mathlib (<code>variance_smul</code>, <code>IndepFun.variance_add</code>)</td></tr>
+    <tr><td>Algebra</td><td>by hand</td><td><code>field_simp</code>, <code>field</code>, <code>ring</code>, <code>linarith</code>, <code>nlinarith</code></td></tr>
+  </table>
+  <p class="intuition"><b>Intuition:</b> Lean replaces every "clearly" with a named lemma or tactic.</p>
+  <p class="from">From: Kalman.lean, Parts 2 and 5.</p>
+</section>
+
+<!-- 8. The research model -->
+<section>
+  <h2>The research model: a switching diffusion</h2>
+  <ul>
+    <li>A hidden basin label $s_t \in \{A, B\}$ switches at random times; the process is reversible.</li>
+    <li>Inside each basin, slow coordinates follow an Ornstein-Uhlenbeck (OU) process, pulled toward the basin's center.</li>
+    <li>Sampled at fixed steps, one OU mode is $x_{t+1} = a\,x_t + w_t$ with decay $a$ and $\operatorname{Var}(w) = \sigma_2(1 - a^2)$, so its equilibrium variance stays $\sigma_2$ (Lean: <code>ouPredict</code>).</li>
+    <li>Each family of MD coordinates is a noisy sensor of the slow state: $y_c = x + v_c$.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> a slow hidden state, seen through many noisy windows.</p>
+  <p class="from">From: the student's research model; Kalman.lean, Part 3.</p>
+</section>
+
+<section>
+  <h2>The innovation diagnostic</h2>
+  <ul>
+    <li>A Kalman filter tracks the hidden state. Each sighting gives an innovation $\nu = y - \hat y^-$: the part the filter did not predict.</li>
+    <li>If the model is right, $\operatorname{Var}(\nu) = S = P + R$, and successive innovations are uncorrelated (white).</li>
+    <li>In the research run, a deliberately hidden backbone torsion showed up as innovations at about 4x their expected level.</li>
+    <li>The extensions ask: what exactly do such surprises prove about the model?</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> surprises that are too large, or too regular, point to what the model left out.</p>
+  <p class="from">From: the student's research model; "the 4x diagnostic" comment in Kalman.lean, Part 6.</p>
+</section>
+
+<!-- 9. Mapping table -->
+<section>
+  <h2>Which theorem covers which piece</h2>
+  <table class="tight">
+    <tr><th>Model piece</th><th>Lean result (Part 6)</th><th>How direct</th></tr>
+    <tr><td>One sensor update</td><td><code>spec_gain_optimal</code>, <code>spec_gain_unique</code>, <code>spec_optVar_le</code></td><td>direct (scalar, linear)</td></tr>
+    <tr><td>Coordinate families as sensors</td><td>S: <code>spec_fusion_comm</code>, <code>spec_fusion_mono</code></td><td>direct, scalar sensors</td></tr>
+    <tr><td>One OU mode, predict and update</td><td>O: <code>spec_ou_bound</code></td><td>direct, one scalar mode</td></tr>
+    <tr><td>Errors as random variables</td><td>A: <code>spec_variance_update</code>, <code>…_optimal</code></td><td>direct, independent errors</td></tr>
+    <tr><td>Hidden-coordinate diagnostic</td><td>D: <code>spec_innov_excess</code>, <code>…_ratio</code></td><td>direct, under independence</td></tr>
+    <tr><td>White-innovation test</td><td>W: <code>spec_white_iff</code></td><td>linear filters only</td></tr>
+    <tr><td>Switch fingerprint</td><td>H0: <code>spec_msm_eigen</code>; H: <code>spec_switch_ratio</code></td><td>only the constant-rate two-state approximation, not the state-dependent jump rule</td></tr>
+    <tr><td>Basin switching rule</td><td>M: <code>spec_detailed_balance</code>, <code>spec_populations_stationary</code></td><td>the square-root rule, at a fixed slow state</td></tr>
+    <tr><td>The filter over time</td><td>F: <code>spec_filter_guarantee</code>; F5: <code>spec_detection_margin</code></td><td>direct, scalar, constant $a$, $Q$, $R$</td></tr>
+  </table>
+  <p class="intuition"><b>Intuition:</b> scalar linear-Gaussian pieces are captured exactly; the switch only approximately.</p>
+  <p class="from">From: Kalman.lean, Part 6; modeling notes in README.md.</p>
+</section>
+
+<!-- 10. Extension results -->
+<section>
+  <h2>S: sensor fusion</h2>
+  <p class="small">Lean: <code>optVar (optVar P R₁) R₂ = optVar (optVar P R₂) R₁</code> and <code>optVar (optVar P R₁) R₂ ≤ optVar P R₁</code>.
+    Both orders equal $P R_1 R_2 / (P R_1 + P R_2 + R_1 R_2)$. In the figure, prior $P = %%f4_P0%%$ and %%f4_n%% sensors:
+    all %%f4_norders%% fusion orders end at %%f4_final%%, equal %%f4_spread%%.</p>
+  <img class="fig" src="figures/fig04_sensors.png" alt="Figure 4: variance after fusing sensors in two orders">
+  <p class="intuition"><b>Intuition:</b> the order of the sensors does not matter, and another sensor never hurts.</p>
+  <p class="from">From: Lean <code>spec_fusion_comm</code>, <code>spec_fusion_mono</code>; make_figures.py, figure 4.</p>
+</section>
+
+<section>
+  <h2>O: an OU mode stays inside its equilibrium spread</h2>
+  <p class="small">$P_0 = \sigma_2$, $\;P_{n+1} = a^2\,\mathrm{optVar}(P_n, R) + \sigma_2(1 - a^2)$ (<code>ouRiccati</code>).
+    Lean: if $a^2 \le 1$, $\sigma_2 \ge 0$ and $R > 0$, then $0 \le P_n \le \sigma_2$ for every $n$.
+    Proof by induction: the update shrinks $P_n$, and the prediction averages it with $\sigma_2$.
+    Figure: $\sigma_2 = %%f5_s2%%$, $R = %%f5_R%%$, $a \in \{%%f5_avals%%\}$.</p>
+  <img class="fig" src="figures/fig05_ou.png" alt="Figure 5: ouRiccati over the filter steps for several decays a">
+  <p class="intuition"><b>Intuition:</b> filtering never leaves you less certain than knowing only the equilibrium spread.</p>
+  <p class="from">From: Lean <code>spec_ou_bound</code>; make_figures.py, figure 5.</p>
+</section>
+
+<section>
+  <h2>A: the variance formula, from random variables</h2>
+<pre><code class="lean">theorem spec_variance_update {Ω : Type*} [MeasurableSpace Ω] {μ : Measure Ω}
+    [IsProbabilityMeasure μ] {e v : Ω → ℝ} (he : MemLp e 2 μ) (hv : MemLp v 2 μ)
+    (hind : IndepFun e v μ) (K : ℝ) :
+    variance (updErr K e v) μ = postVar (variance e μ) (variance v μ) K</code></pre>
+  <ul class="small">
+    <li>Proof: <code>updErr K e v = (1 - K) • e + (-K) • v</code>; scaled copies stay independent (<code>IndepFun.comp</code>); then the sum rule and the scaling rule.</li>
+    <li>Corollary <code>spec_variance_update_optimal</code>: the gain built from the true variances beats every other $K$.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> the formula $f(K)$ is now a theorem about random variables, not an assumption.</p>
+  <p class="from">From: Kalman.lean, Part 5 (<code>variance_update</code>, <code>variance_update_optimal</code>).</p>
+</section>
+
+<section>
+  <h2>D: an omitted coordinate inflates the innovations</h2>
+  <p class="small">The filter expects the innovation $e + v$, with variance $S = \operatorname{Var} e + \operatorname{Var} v$, but sees $e + v + h$.
+    Lean: $\operatorname{Var}(e + v + h) = S + \operatorname{Var} h$, so the ratio is $1 + \tau^2/S > 1$ with $\tau^2 = \operatorname{Var} h$.
+    Figure: %%f6_N%% simulated innovations per channel; channel %%f6_flag%% omits $h$ with $\tau^2 = 3S$, giving %%f6_ratio%% (theory %%f6_theory%%);
+    the other channels give %%f6_clean_lo%% to %%f6_clean_hi%%.</p>
+  <img class="fig" src="figures/fig06_innovations.png" alt="Figure 6: innovation variance ratio per sensor channel">
+  <p class="intuition"><b>Intuition:</b> an omitted coordinate adds its whole variance to the surprises.</p>
+  <p class="from">From: Lean <code>spec_innov_excess</code>, <code>spec_innov_excess_ratio</code>; make_figures.py, figure 6.</p>
+</section>
+
+<section>
+  <h2>W: white innovations exactly at the Kalman gain</h2>
+  <ul class="small">
+    <li><code>innovCov</code>: lag 1 is $a(1-K)P - aKR$; each further lag multiplies by the filter pole $a(1-K)$.</li>
+    <li>Lag 1 equals $a\,(P+R)\,(K^* - K)$ (<code>innovCov_zero</code>), and lag $k+1$ is $(a(1-K))^k$ times lag 1 (<code>innovCov_closed</code>).</li>
+    <li>So for $a \ne 0$: every lag vanishes exactly when $K = P/(P+R)$.</li>
+  </ul>
+<pre><code class="lean">theorem spec_white_iff (a P R K : ℝ) (ha : a ≠ 0) (hP : 0 ≤ P) (hR : 0 &lt; R) :
+    (∀ k, innovCov a P R K k = 0) ↔ K = gain P R</code></pre>
+  <p class="intuition"><b>Intuition:</b> the Kalman gain is exactly the gain that leaves no predictable pattern in the surprises.</p>
+  <p class="from">From: Lean <code>spec_white_iff</code> (proof in Part 4).</p>
+</section>
+
+<section>
+  <h2>H0: the switch's slow eigenvalue</h2>
+  <div class="cols">
+    <div class="small">
+      <p>Two-state Markov state model: $\;\texttt{msm}\ p\ q = \begin{pmatrix} 1-p &amp; p \\ q &amp; 1-q \end{pmatrix}$.</p>
+      <p>Lean: $(p, -q)$ is an eigenvector with eigenvalue $\lambda_2 = 1 - p - q$.</p>
+      <p>So a deviation from equilibrium shrinks by the factor $\lambda_2$ each step; rare switches ($p, q$ small) give $\lambda_2$ close to 1.</p>
+<pre><code class="lean">theorem spec_msm_eigen (p q : ℝ) :
+    (msm p q).mulVec ![p, -q] = (1 - p - q) • ![p, -q]</code></pre>
+    </div>
+    <div><img class="fig" src="figures/fig08_msm.png" alt="Figure 8: two-state Markov state model with states A and B"></div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> a slow switch remembers its state for a long time.</p>
+  <p class="from">From: Lean <code>spec_msm_eigen</code>; make_figures.py, figure 8.</p>
+</section>
+
+<section>
+  <h2>H: the switch's fingerprint in the innovations</h2>
+  <p class="small">A filter that ignores the switch has lag covariances $c_{n+1} = \alpha\,c_n + \beta\,\lambda^{n+1}$ (<code>switchCov</code>), with filter pole $\alpha$.
+    Lean: if $\beta \ne 0$ and $|\alpha| &lt; |\lambda|$, then $c_{n+1}/c_n \to \lambda$.
+    Simulation: $a = %%f7_a%%$, $R = %%f7_R%%$, $p = q = %%f7_p%%$, %%f7_N%% steps, $\alpha = %%f7_alpha%%$:
+    fitted decay $\hat\lambda = %%f7_lamhat%%$ vs $\lambda_2 = %%f7_lam2%%$. With the switch known, the largest $|\rho|$ is %%f7_right_max%%.</p>
+  <img class="fig mid" src="figures/fig07_autocorr.png" alt="Figure 7: innovation autocorrelation against lag for two filters">
+  <p class="intuition"><b>Intuition:</b> the slowest memory in the system sets the tail of the autocorrelation.</p>
+  <p class="from">From: Lean <code>spec_switch_ratio</code>; make_figures.py, figure 7.</p>
+</section>
+
+<!-- 10b. Capstones -->
+<section>
+  <h2>Capstone: the model keeps its equilibrium (M)</h2>
+  <p class="small">At a fixed slow state, basin $i$ jumps to basin $j$ at rate $k_{ij} = \kappa_{ij}\sqrt{p_j/p_i}$ (<code>jumpRate</code>), with $\kappa_{ij} = \kappa_{ji}$.
+    M1, detailed balance: $p_i\,k_{ij} = p_j\,k_{ji}$, because both sides equal $\kappa_{ij}\sqrt{p_i\,p_j}$.
+    M2: so the flows into and out of every basin cancel, and $p^\top L = 0$ for the <code>generator</code> $L$.
+    Figure: 3 basins, $p = (%%f14_p%%)$, random symmetric $\kappa$; %%f14_jumps%% simulated jumps land within %%f14_occ_err%% of $p$.</p>
+  <img class="fig mid" src="figures/fig14_stationary.png" alt="Figure 14: target populations and simulated occupancy for a three-basin generator">
+  <p class="intuition"><b>Intuition:</b> every pair of basins trades equal flows, so the populations never drift.</p>
+  <p class="from">From: Lean <code>spec_detailed_balance</code>, <code>spec_populations_stationary</code> (Part 4c); make_figures.py, figure 14.</p>
+</section>
+
+<section>
+  <h2>Capstone: the filter converges and is calibrated (F)</h2>
+  <p class="small">The prior variance follows $P_{n+1} = a^2\,\mathrm{optVar}(P_n, R) + Q$ (<code>riccatiIter</code>). If $a^2 &lt; 1$, $a \ne 0$, $Q \ge 0$ and $R &gt; 0$, Lean proves:
+    (1) two runs differ by at most $(a^2)^n$ times their starting gap; (2) $P_\infty$ (<code>steadyVar</code>) is a nonnegative fixed point; (3) every run tends to $P_\infty$; (4) there the Kalman gain gives white innovations.
+    Figure: $a = %%f11_a%%$, $Q = %%f11_Q%%$, $R = %%f11_R%%$; the largest gap-to-bound ratio is %%f11_worst%%.</p>
+  <img class="fig mid" src="figures/fig11_convergence.png" alt="Figure 11: filter variance from five starts converging to the steady state, under the contraction bound">
+  <p class="intuition"><b>Intuition:</b> the filter forgets how it was started at least as fast as the dynamics forget.</p>
+  <p class="from">From: Lean <code>spec_filter_guarantee</code> (Part 4b); make_figures.py, figure 11.</p>
+</section>
+
+<section>
+  <h2>What this means for MD runs</h2>
+  <ul class="small">
+    <li><b>Burn-in.</b> With frame spacing $\Delta t$ and relaxation time $\tau_c$, $a = e^{-\Delta t/\tau_c}$, so by F the start is forgotten to a factor $\varepsilon$ after $n \ge \frac{\tau_c}{2\Delta t}\ln\frac{1}{\varepsilon}$ frames: %%f12_n3%% frames for $\tau_c = 10\,\Delta t$, $\varepsilon = 10^{-3}$.</li>
+    <li><b>Reference level.</b> At steady state each channel's innovations should have variance $S_\infty = P_\infty + R$.</li>
+    <li><b>Detectability.</b> An omitted coordinate gives exactly $1 + \tau^2/S_\infty$ (F5), so 4x means $\tau^2 = 3\,S_\infty$. With $N$ white innovations the ratio's noise is about $\sqrt{2/N}$: an excess above $3\sqrt{2/N}$ stands out (%%f13_thr_1e3%% for $N = 1{,}000$).</li>
+  </ul>
+  <div class="cols">
+    <img class="fig pair" src="figures/fig12_burnin.png" alt="Figure 12: burn-in frames against relaxation time">
+    <img class="fig pair" src="figures/fig13_margin.png" alt="Figure 13: detection margin against the omitted variance">
+  </div>
+  <p class="intuition"><b>Intuition:</b> discard the burn-in, then judge each channel against $S_\infty$, above the noise floor.</p>
+  <p class="from">From: Lean <code>spec_filter_guarantee</code>, <code>spec_detection_margin</code>; the $\sqrt{2/N}$ noise level is standard sampling theory, not proved in Lean; make_figures.py, figures 12 and 13.</p>
+</section>
+
+<section>
+  <h2>What the theorems do not prove</h2>
+  <table class="tight">
+    <tr><th>Assumption</th><th>Used by</th><th>Empirical check</th></tr>
+    <tr><td>Each slow mode is linear-Gaussian (OU) with constant $a$ and $Q$</td><td>O, F</td><td>the autocorrelation of each slow coordinate decays like $a^n$; residuals look Gaussian</td></tr>
+    <tr><td>Sensor noise is independent of the state error and across channels</td><td>A, D, F5</td><td>cross-correlations of innovations between channels are near 0</td></tr>
+    <tr><td>Each channel's noise variance $R$ is known and constant</td><td>F, W, D</td><td>channels without an omitted coordinate show ratios near 1 (figure 6)</td></tr>
+    <tr><td>The filter has reached steady state</td><td>W, F5</td><td>burn-in frames discarded; $P_n$ flat over the rest of the run</td></tr>
+    <tr><td>Jump rates follow the square-root rule at a fixed slow state</td><td>M</td><td>transition counts in bins of the slow coordinates satisfy $p_i k_{ij} \approx p_j k_{ji}$</td></tr>
+    <tr><td>The switch is a constant-rate two-state chain</td><td>H0, H</td><td>dwell times in each basin are exponentially distributed</td></tr>
+  </table>
+  <p class="intuition"><b>Intuition:</b> the theorems turn assumptions into conclusions; the data must still back the assumptions.</p>
+  <p class="from">From: the hypotheses of the Part 6 statements in Kalman.lean; modeling notes in README.md.</p>
+</section>
+
+<!-- 11. Verification -->
+<section>
+  <h2>Verification: the trust boundary</h2>
+  <p class="small">Read the Part 1 and Part 3 definitions and the %%n_spec%% statements in Part 6.
+    Lean checks the %%n_proved%% proofs in Parts 2, 4, 4b, 4c and 5; each Part 6 result is a one-line citation of one of them.</p>
+  <img class="fig" src="figures/fig10_trust.png" alt="Figure 10: trust boundary between human-verified and machine-checked parts">
+  <p class="intuition"><b>Intuition:</b> read the definitions and statements; the kernel checks the rest.</p>
+  <p class="from">From: Kalman.lean layout; make_figures.py, figure 10.</p>
+</section>
+
+<section>
+  <h2>Verification: build and axioms</h2>
+  <p class="small"><code>lake build LoVe.Final_Project.Kalman</code> finishes with no errors and no <code>sorry</code>; a search for <code>sorry</code>, <code>admit</code> and <code>native_decide</code> finds nothing.
+    <code>#print axioms</code> for every result:</p>
+<pre class="output"><code>'Kalman.spec_gain_optimal' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_gain_unique' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_optVar_le' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_fusion_comm' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_fusion_mono' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_ou_bound' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_variance_update' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_variance_update_optimal' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_innov_excess' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_innov_excess_ratio' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_white_iff' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_msm_eigen' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_switch_ratio' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_detailed_balance' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_populations_stationary' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_filter_guarantee' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Kalman.spec_detection_margin' depends on axioms: [propext, Classical.choice, Quot.sound]</code></pre>
+  <p class="intuition"><b>Intuition:</b> only Lean's standard axioms appear: no <code>sorryAx</code>, no new axioms.</p>
+  <p class="from">From: <code>lake build LoVe.Final_Project.Kalman</code> output (Lean and Mathlib v4.33.0).</p>
+</section>
+
+<!-- 12. How the AI workflow was engineered -->
+<section>
+  <h2>Workflow: human-written final statements</h2>
+  <ul>
+    <li><b>Technique.</b> A human writes the formal statements; the AI may only fill in proofs.</li>
+    <li class="src"><b>Source.</b> On Erdős problem #367, Boris Alexeev formalized the final statement by hand before an AI prover wrote the Lean proof, to guard against AI exploits; Terence Tao was part of the same workflow.</li>
+  </ul>
+  <p class="here"><b>Here:</b> the student reviewed Parts 1, 3 and 6. The prompt forbade changing them, and a script compared them with the reviewed text after the proofs were done.</p>
+  <p class="intuition"><b>Intuition:</b> a proof is only as good as the statement it proves.</p>
+  <p class="from">From: Alexeev / Tao, Erdős #367.</p>
+</section>
+
+<section>
+  <h2>Workflow: informal proof first</h2>
+  <ul>
+    <li><b>Technique.</b> Write the proof in plain math first, then turn it into a formal sketch whose gaps automation fills.</li>
+    <li class="src"><b>Source.</b> Draft, Sketch, and Prove (ICLR 2023) guides formal theorem provers with informal proofs.</li>
+  </ul>
+  <p class="here"><b>Here:</b> the prompt gave a short informal proof for every result, and each Lean proof follows its steps. For W: closed form, then lag 1, then both directions.</p>
+  <p class="intuition"><b>Intuition:</b> a plan in plain math keeps the formal proof on track.</p>
+  <p class="from">From: Jiang et al., Draft, Sketch, and Prove, <a href="https://arxiv.org/abs/2210.12283">arxiv.org/abs/2210.12283</a>.</p>
+</section>
+
+<section>
+  <h2>Workflow: sorry-skeleton subgoal decomposition</h2>
+  <ul>
+    <li><b>Technique.</b> State each intermediate step as <code>have … := by sorry</code>, compile the skeleton, then prove the pieces.</li>
+    <li class="src"><b>Source.</b> DeepSeek-Prover-V2 (2025) decomposes theorems into such subgoals before proving them.</li>
+  </ul>
+  <p class="here"><b>Here:</b> the first complete file compiled with a <code>sorry</code> at every leaf, so the plan type-checked before any proof was written.</p>
+  <p class="intuition"><b>Intuition:</b> check the plan before doing the work.</p>
+  <p class="from">From: DeepSeek-Prover-V2, <a href="https://arxiv.org/abs/2504.21801">arxiv.org/abs/2504.21801</a>.</p>
+</section>
+
+<section>
+  <h2>Workflow: compiler and goal-state access</h2>
+  <ul>
+    <li><b>Technique.</b> Let the agent read Lean's diagnostics and goal states instead of guessing.</li>
+    <li class="src"><b>Source.</b> lean-lsp-mcp exposes the Lean language server (diagnostics, goals, search) to AI agents.</li>
+  </ul>
+  <p class="here"><b>Here:</b> lean-lsp-mcp was not available in this session, so Claude Code compiled with <code>lake env lean</code> using the lakefile's options, and printed goals with <code>trace_state</code>.</p>
+  <p class="intuition"><b>Intuition:</b> real error messages beat guesses.</p>
+  <p class="from">From: <a href="https://github.com/oOo0oOo/lean-lsp-mcp">github.com/oOo0oOo/lean-lsp-mcp</a>.</p>
+</section>
+
+<section>
+  <h2>Workflow: one sorry at a time, fixed tactic order</h2>
+  <ul>
+    <li><b>Technique.</b> Fill one <code>sorry</code>, compile, repeat. Try tactics in a fixed order: <code>rfl</code>, <code>simp</code>, <code>ring</code>, <code>linarith</code>, <code>nlinarith</code>, <code>positivity</code>, <code>grind</code>, <code>exact?</code>, <code>apply?</code>, <code>aesop</code>.</li>
+    <li class="src"><b>Source.</b> The lean4 skill for Claude Code.</li>
+  </ul>
+  <p class="here"><b>Here:</b> the skill was not installed, so its workflow came from the prompt. Each failure, such as a <code>rw</code> that unfolded the wrong occurrence, was fixed from the error message before moving on. For the capstones each compile took about two minutes, so the twelve <code>sorry</code>s were filled in one batch; Lean reports errors per lemma, so failures would still have stayed local.</p>
+  <p class="intuition"><b>Intuition:</b> small steps keep every error local.</p>
+  <p class="from">From: <a href="https://github.com/cameronfreer/lean4-skills">github.com/cameronfreer/lean4-skills</a>.</p>
+</section>
+
+<section>
+  <h2>Workflow: XML-structured, direct prompts with reasons</h2>
+  <ul>
+    <li><b>Technique.</b> Put context, rules, definitions, statements, informal proofs and checks in separate tags. State each rule directly, with its reason.</li>
+    <li class="src"><b>Sources.</b> Anthropic's guide to XML tags; OpenAI's reasoning best practices (keep prompts simple and direct, use delimiters).</li>
+  </ul>
+  <p class="here"><b>Here:</b> the prompt used tags such as <code>&lt;hard_rules&gt;</code>, <code>&lt;statements&gt;</code>, <code>&lt;informal_proofs&gt;</code> and <code>&lt;verification&gt;</code>, and explained why the statements must stay fixed.</p>
+  <p class="intuition"><b>Intuition:</b> a model follows a rule more reliably when it knows why the rule exists.</p>
+  <p class="from">From: <a href="https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/use-xml-tags">platform.claude.com/docs/en/build-with-claude/prompt-engineering/use-xml-tags</a>;
+    <a href="https://platform.openai.com/docs/guides/reasoning-best-practices">platform.openai.com/docs/guides/reasoning-best-practices</a>.</p>
+</section>
+
+<section>
+  <h2>Workflow: faithfulness checks and sanity examples</h2>
+  <ul class="small">
+    <li>Before proving: each Part 6 result was restated in one plain sentence and compared with the definitions' docstrings.</li>
+    <li>Sanity examples pinned down the definitions, for example <code>gain 1 1 = 1 / 2</code> and <code>ouRiccati a σ2 R 0 = σ2</code>, and were deleted at the end.</li>
+    <li>After proving: a script compared Parts 1, 3 and 6 with the reviewed text, and <code>#print axioms</code> listed every dependency.</li>
+    <li>What the checks caught: the student's first draft left five proofs unfinished and had a parse error, <code>linarith(_)</code>. The student then finished all five, and Part 2 now uses those proofs verbatim.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> check the statements as carefully as the proofs.</p>
+  <p class="from">From: this project's workflow and Kalman.lean, Part 2.</p>
+</section>
+
+<!-- 13. Limitations -->
+<section>
+  <h2>Limitations</h2>
+  <ul>
+    <li>Second-moment recursions are definitions: <code>ouRiccati</code>, <code>riccatiIter</code>, <code>innovCov</code> and <code>switchCov</code> are stated as variance recursions, not derived from a stochastic process in Lean. Only A, D and F5 use random variables.</li>
+    <li>Scalar only: no matrices, so no multivariate Kalman filter.</li>
+    <li>The switching results are partial: M holds at a fixed slow state and H uses a constant-rate two-state chain; neither couples the jumps to the slow diffusion.</li>
+    <li>No IMM (interacting multiple model) filter, so nothing is proved about filtering the switch itself.</li>
+  </ul>
+  <p class="intuition"><b>Intuition:</b> the verified core is exact; the model around it is approximated.</p>
+  <p class="from">From: Kalman.lean, Parts 3 and 6.</p>
+</section>
+
+<!-- 14. Summary and future work -->
+<section>
+  <h2>Summary and future work</h2>
+  <div class="cols">
+    <div>
+      <p class="label">Summary</p>
+      <ul class="small">
+        <li>%%n_spec%% results machine-checked, using only Lean's standard axioms.</li>
+        <li>Core: the Kalman gain minimizes the update variance, uniquely, and the blend beats both sources.</li>
+        <li>Extensions: fusion order, the OU bound, variance from random variables, the hidden-coordinate diagnostic, white innovations, the switch's fingerprint.</li>
+        <li>Capstones: the switching model keeps its populations (M); the filter forgets its start, converges and is calibrated (F); the exact detection margin (F5).</li>
+      </ul>
+    </div>
+    <div>
+      <p class="label">Future work</p>
+      <ul class="small">
+        <li>The matrix Kalman filter, $K = P H^\top (H P H^\top + R)^{-1}$.</li>
+        <li>Derive the variance recursions from stochastic processes in Mathlib.</li>
+        <li>An IMM filter, and jump rates coupled to the slow diffusion for the full model.</li>
+      </ul>
+    </div>
+  </div>
+  <p class="intuition"><b>Intuition:</b> a small verified core is a foundation the full model can build on.</p>
+  <p class="from">From: this project.</p>
+</section>
+
+</div></div>
+
+<script src="figures/numbers.js"></script>
+<script>
+  // Fill %%key%% placeholders with numbers computed by make_figures.py, before KaTeX runs.
+  (function () {
+    var KF = window.KF || {};
+    var slides = document.querySelector('.reveal .slides');
+    slides.innerHTML = slides.innerHTML.replace(/%%(\w+)%%/g, function (m, key) {
+      return Object.prototype.hasOwnProperty.call(KF, key) ? KF[key] : '??';
+    });
+    slides.querySelectorAll('img.fig').forEach(function (img) {
+      img.addEventListener('error', function () {
+        var note = document.createElement('p');
+        note.className = 'missing-fig';
+        note.textContent = 'Missing ' + img.getAttribute('src') + ': run make_figures.py';
+        img.replaceWith(note);
+      });
+    });
+  })();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/math/math.js"></script>
+<script>
+  Reveal.initialize({
+    width: 1280, height: 720, margin: 0.04, center: false, hash: true,
+    slideNumber: 'c/t', transition: 'fade', transitionSpeed: 'fast',
+    katex: {
+      version: '0.16.11',
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '$', right: '$', display: false }
+      ],
+      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+    },
+    plugins: [RevealMath.KaTeX]
+  });
+</script>
+</body>
+</html>

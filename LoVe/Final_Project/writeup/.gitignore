@@ -1,0 +1,10 @@
+# LaTeX build byproducts (the PDF itself is kept)
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.xdv
+__pycache__/

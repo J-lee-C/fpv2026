@@ -53,12 +53,33 @@ concerned), and `repeat 0 S` has the same effect as `skip`. -/
 
 /- ### 1.1 (2 points).
 
-Complete the following definition of a big-step semantics: -/
+Complete the following definition of a big-step semantics:
+First three are the exact same from the language-/
+
 
 inductive BigStep : Stmt × State → State → Prop
   | skip (s) :
     BigStep (Stmt.skip, s) s
+  | assign (x a s):
+    BigStep (Stmt.assign x a, s) (s[x ↦ a s])
+  | seq (S T s t u) (hS : BigStep (S, s) t)
+      (hT : BigStep (T, t) u) :
+    BigStep (S; T, s) u
+  | unlessDo (Condition Statement start finale) (hcond: ¬ Condition start)
+      (hbody: BigStep (Statement, start) finale):
+    BigStep (Stmt.unlessDo Condition Statement, start) finale
+  | unlessDoNothing (Condition Statement start ) (hcond: Condition start):
+      BigStep (Stmt.unlessDo Condition Statement, start) start
+  | repeat_zero (state body):
+    BigStep (Stmt.repeat 0 body, state) state
+  | repeat_normal (number body start middle final)
+    (hbody : BigStep (body, start) middle)
+    (hrest : BigStep (Stmt.repeat number body, middle) final) :
+    BigStep (Stmt.repeat (number + 1) body, start) final
+
+
 -- enter the missing cases here
+
 
 infix:110 " ⟹ " => BigStep
 
@@ -68,7 +89,29 @@ Prove the following inversion rule for the big-step semantics of `unless`. -/
 @[autogradedProof 1]
 theorem BigStep_ite_iff {B S s t} :
   (Stmt.unlessDo B S, s) ⟹ t ↔ (B s ∧ s = t) ∨ (¬ B s ∧ (S, s) ⟹ t) :=
-  sorry
+  by
+    apply Iff.intro
+    { intro h
+      cases h with
+      | unlessDoNothing _ _ _ hB =>
+        apply Or.intro_left
+        aesop
+      | unlessDo _ _ _ _ hB hS =>
+        apply Or.intro_right
+        aesop }
+    { intro h
+      cases h with
+      | inl h =>
+        cases h with
+        | intro hB hst =>
+          rw [← hst]
+          apply BigStep.unlessDoNothing
+          assumption
+      | inr h =>
+        cases h with
+        | intro hB hS =>
+          apply BigStep.unlessDo <;>
+            assumption }
 
 /- ### 1.3 (2 points).
 
@@ -79,7 +122,27 @@ theorem BigStep_repeat_iff {n S s u} :
   (Stmt.repeat n S, s) ⟹ u ↔
   (n = 0 ∧ u = s)
   ∨ (∃m t, n = m + 1 ∧ (S, s) ⟹ t ∧ (Stmt.repeat m S, t) ⟹ u) :=
-  sorry
+    by
+    apply Iff.intro
+    { intro h
+      cases h with
+      | repeat_zero _ _ =>
+        apply Or.intro_left
+        aesop
+      | repeat_normal number _ _ middle _ hbody hrest =>
+        apply Or.intro_right
+        exact ⟨number, middle, rfl, hbody, hrest⟩ }
+    { intro h
+      cases h with
+      | inl h =>
+        cases h with
+        | intro hn hu =>
+          rw [hn, hu]
+          apply BigStep.repeat_zero
+      | inr h =>
+        obtain ⟨number, middle, hn, hbody, hrest⟩ := h
+        rw [hn]
+        exact BigStep.repeat_normal _ _ _ _ _ hbody hrest }
 
 end Repeat
 
@@ -169,6 +232,16 @@ Here are some useful ASCII symbols: `–`, `⊢`. -/
 
 /-
 Write your response for part 1 here.
+
+                                                        ——————————————— fn   ——————————— arg
+——————————————— fn   ——————————— arg                     fn 0 ∶ function 0    arg ∶ argument
+fn 3 ∶ function 3    arg ∶ argument                     ——————————————————————————————————— appZero
+——————————————————————————————————— appSucc                 app (fn 0) arg ∶ argument
+    app (fn 3) arg ∶ function 2
+————————————————————————————————————————————————————————————————————————————————————————— appSucc
+               app (app (fn 3) arg) (app (fn 0) arg) ∶ function 1
+
+
 -/
 
 /- ### 2.2 (1 point).
@@ -182,8 +255,15 @@ of it, though, you should try writing the specific terms, either using `apply`
 or as a forward proof! -/
 
 @[autogradedProof 1]
-theorem tp_exercise : app (app (fn 3) arg) (app (fn 0) arg) ∶ sorry :=
-  sorry
+theorem tp_exercise : app (app (fn 3) arg) (app (fn 0) arg) ∶ function 1 := by
+    have function3   : fn 3 ∶ function 3 := HasType.fn
+    have function0   : fn 0 ∶ function 0 := HasType.fn
+    have is_argument : arg ∶ argument    := HasType.arg
+
+    have reduce_left  : app (fn 3) arg ∶ function 2 := HasType.appSucc function3 is_argument
+    have reduce_right : app (fn 0) arg ∶ argument   := HasType.appZero function0 is_argument
+
+    exact HasType.appSucc reduce_left reduce_right
 
 /- Next, we define our language's dynamics. Because we are defining a functional
 language, our small-step semantics specifies transitions between *expressions*,
@@ -239,8 +319,29 @@ Hint: We recommend proceeding by rule induction on the step judgment. -/
 
 @[autogradedProof 2]
 theorem preservation {e e' : FnExp} {τ : FnType} :
-  e ∶ τ → e ⇒ e' → e' ∶ τ :=
-  sorry
+  e ∶ τ → e ⇒ e' → e' ∶ τ := by
+  intro whole_type bite
+  induction bite generalizing τ with
+  | appArg inner_bite bite_keeps_type =>
+    cases whole_type with
+    | appZero fn_hunger is_snack =>
+      apply HasType.appZero
+      { exact bite_keeps_type fn_hunger }
+      { exact is_snack }
+    | appSucc fn_hunger is_snack =>
+      apply HasType.appSucc
+      { exact bite_keeps_type fn_hunger }
+      { exact is_snack }
+  | appZero =>
+    cases whole_type with
+    | appZero fn_hunger is_snack => exact is_snack
+    | appSucc fn_hunger is_snack => cases fn_hunger
+  | appSucc =>
+    cases whole_type with
+    | appZero fn_hunger is_snack => cases fn_hunger
+    | appSucc fn_hunger is_snack =>
+      cases fn_hunger
+      exact HasType.fn
 
 /- Lastly, we prove progress. In order to do so, we need to define what a
 "fully-evaluated expression" is in our language. For this purpose, we define a
@@ -259,8 +360,39 @@ inductive Value : FnExp → Prop
 
 @[autogradedProof 2]
 theorem progress {e : FnExp} {τ : FnType} :
-  e ∶ τ → Value e ∨ ∃ e', e ⇒ e' :=
-  sorry
+  e ∶ τ → Value e ∨ ∃ e', e ⇒ e' := by
+  intro whole_type
+  induction whole_type with
+  | fn =>
+    apply Or.intro_left
+    exact Value.fn
+  | arg =>
+    apply Or.intro_left
+    exact Value.arg
+  | appZero fn_hunger is_snack fn_progress snack_progress =>
+    apply Or.intro_right
+    cases fn_progress with
+    | inr fn_bites =>
+      obtain ⟨f', f_bite⟩ := fn_bites
+      exact ⟨_, Step.appArg f_bite⟩       -- function part bites first
+    | inl fn_finished =>
+      cases fn_finished with
+      | arg => cases fn_hunger            -- impossible: a snack isn't a function
+      | fn =>
+        cases fn_hunger                   -- it's fn 0
+        exact ⟨_, Step.appZero⟩           -- last snack
+  | appSucc fn_hunger is_snack fn_progress snack_progress =>
+    apply Or.intro_right
+    cases fn_progress with
+    | inr fn_bites =>
+      obtain ⟨f', f_bite⟩ := fn_bites
+      exact ⟨_, Step.appArg f_bite⟩       -- function part bites first
+    | inl fn_finished =>
+      cases fn_finished with
+      | arg => cases fn_hunger            -- impossible: a snack isn't a function
+      | fn =>
+        cases fn_hunger                   -- it's fn (n + 1)
+        exact ⟨_, Step.appSucc⟩           -- not the last snack
 
 /- ### 2.5 (3 points).
 
@@ -272,8 +404,19 @@ inductive BadStep : FnExp → FnExp → Prop
   | app_zero {x}   : BadStep (app (fn 0) x) x
   | app_succ {x n} : BadStep (app (fn (Nat.succ n)) x) (fn n)
 
-theorem negation_of_coherence_property : sorry := sorry
-
+theorem negation_of_coherence_property :
+  ¬ (∀ {e τ}, e ∶ τ → Value e ∨ ∃ e', BadStep e e') := by
+  intro progress_holds
+  have function1   : fn 1 ∶ function 1 := HasType.fn
+  have is_argument : arg ∶ argument    := HasType.arg
+  have reduce_left : app (fn 1) arg ∶ function 0 := HasType.appSucc function1 is_argument
+  have stuck_type  : app (app (fn 1) arg) arg ∶ argument := HasType.appZero reduce_left is_argument
+  cases progress_holds stuck_type with
+  | inl is_value =>
+    cases is_value                -- an app is never a value
+  | inr can_bite =>
+    obtain ⟨e', bite⟩ := can_bite
+    cases bite                    -- BadStep can't bite: the function part isn't a plain fn
 end FnExp
 
 /- ## Question 3: A FoolProof Language (1 point)
@@ -355,15 +498,30 @@ by
 Prove that progress fails to hold. -/
 
 @[autogradedProof 1]
-theorem no_prog : ¬(∀ {e τ}, (e ∶ τ) → Value e ∨ ∃ e', e ⇒ e') :=
-sorry
+theorem no_prog : ¬(∀ {e τ}, (e ∶ τ) → Value e ∨ ∃ e', e ⇒ e') := by
+  intro progress_holds
+  have stuck_type : projl zero ∶ projl zero := typing_is_identity (projl zero)
+  cases progress_holds stuck_type with
+  | inl is_value =>
+    cases is_value                  -- projl is never a value
+  | inr can_step =>
+    obtain ⟨e', step⟩ := can_step
+    cases step with
+    | stepl inner_step =>
+      cases inner_step              -- zero can't take a step
 
 /- ### 3.2 (1 point).
 Prove that preservation fails to hold. -/
 
 @[autogradedProof 1]
-theorem no_pres : ¬(∀ {e e' τ}, e ∶ τ → e ⇒ e' → e' ∶ τ) :=
-sorry
+theorem no_pres : ¬(∀ {e e' τ}, e ∶ τ → e ⇒ e' → e' ∶ τ) := by
+  intro preservation_holds
+  have before_type : projl (tuple zero (succ zero)) ∶ projl (tuple zero (succ zero)) :=
+    typing_is_identity _
+  have step : projl (tuple zero (succ zero)) ⇒ zero := Step.projl
+  have after_type : zero ∶ projl (tuple zero (succ zero)) :=
+    preservation_holds before_type step
+  cases after_type                -- impossible: zero's only type is zero
 
 end FPExp
 end LoVe

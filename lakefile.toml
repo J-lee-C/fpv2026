@@ -5,7 +5,7 @@ defaultTargets = ["LoVe"]
 autoImplicit = false
 linter.unusedVariables = false 
 linter.unusedTactic = false
-linter.unreachableTactic = false
+weak.linter.unreachableTactic = false
 
 [[require]]
 name = "autograder" 

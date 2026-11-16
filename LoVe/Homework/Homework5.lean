@@ -26,7 +26,8 @@ Lean definition below. The definition should distinguish two cases, like `Even`,
 and should not rely on `Even`. -/
 
 inductive Odd : ℕ → Prop
--- supply the missing cases here
+  | one            : Odd 1
+  | add_two (k : ℕ) : Odd k → Odd (k + 2)
 
 /- ### 1.2 (1 point).
 
@@ -35,11 +36,11 @@ your answer to question 2.1. -/
 
 @[autogradedProof 0.5] theorem Odd_3 :
   Odd 3 :=
-  sorry
+  Odd.add_two 1 Odd.one
 
 @[autogradedProof 0.5] theorem Odd_5 :
   Odd 5 :=
-  sorry
+  Odd.add_two 3 (Odd.add_two 1 Odd.one)
 
 /- ### 1.3 (1 point).
 
@@ -47,7 +48,10 @@ Prove the following theorem by rule induction: -/
 
 @[autogradedProof 1] theorem Even_Odd {n : ℕ} (heven : Even n) :
   Odd (n + 1) :=
-  sorry
+  by
+    induction heven with
+    | zero => exact Odd.one
+    | add_two k hk ih => exact Odd.add_two (k+1) ih
 
 /- ### 1.4 (1 point).
 
@@ -57,7 +61,14 @@ Hint: Recall that `¬ a` is defined as `a → false`. -/
 
 @[autogradedProof 1] theorem Even_Not_Odd {n : ℕ} (heven : Even n) :
   ¬ Odd n :=
-  sorry
+  by
+    intro On
+    induction heven with
+    | zero =>
+      cases On
+    | add_two k hk ih =>
+      cases On with
+      | add_two m hm => exact ih hm
 
 infixl:50 " <+ " => List.Sublist
 
@@ -107,7 +118,8 @@ the `List` constructors in your solution. (Of note, this means that
 
 -- Fill this in:
 inductive IsIn {α : Type} : α → List α → Prop
-
+| head (x : α) (xs : List α) : IsIn x (x :: xs)
+| tail (x y : α) (xs : List α) : IsIn x xs → IsIn x (y :: xs)
 
 -- For the rest of this problem, we'll redefine the `∈` and `∉` notation to use
 -- your `IsIn` predicate instead of the default.
@@ -136,7 +148,8 @@ Hint: you may find the `IsIn` (`∈`) predicate you defined above useful! -/
 
 -- Fill this in:
 inductive NoDuplicates {α : Type} : List α → Prop
-
+  | nil : NoDuplicates []
+  | cons (x : α) (xs : List α) : Not (IsIn x xs) → NoDuplicates xs → NoDuplicates (x :: xs)
 
 /- ### 2.3 (2 points).
 
@@ -159,7 +172,18 @@ axiom not_in_of_not_in_sublist {α : Type} {x : α} {xs ys : List α} :
 @[autogradedProof 2]
 theorem noDuplicates_sublist_of_noDuplicates {α : Type} (xs ys : List α) :
   NoDuplicates ys → xs <+ ys → NoDuplicates xs :=
-  sorry
+  by
+    intro hnd hsub
+    induction hsub with
+    | slnil => exact hnd
+    | cons a h ih =>
+      cases hnd with
+        | cons a h hnotin htail => exact ih htail
+    | cons_cons a h ih =>
+      cases hnd with
+        | cons _ _ hnotin htail =>
+          exact NoDuplicates.cons _ _ (not_in_of_not_in_sublist h hnotin) (ih htail)
+
 
 end NoDupSublists
 
@@ -230,12 +254,19 @@ by
   intros xs ys
   induction ys with
   | nil =>
-    sorry
+    rfl
   | cons y ys ih =>
+    rw [appendToAll, List.foldl]
     sorry
 
 /-
 WRITE YOUR ANSWER TO PART 1 HERE
+The induction hypothesis is not helpful here because if we have the new list
+y + [ys] where y is the first element and ys are all the prior elements
+the induction hypothesis says that given we have xs then adding on
+with the rest of the ys does not change the length
+except here we have xs added on with y, so the rest of the induction hypothesis
+doesn't exactly work
 -/
 
 /-! In this problem, we'll explore another approach to proving properties of
@@ -309,7 +340,12 @@ recursion!) -/
     (hinit : P z)
     (hpres : ∀ (acc : α) (x : β), P acc → P (f acc x)),
     P (List.foldl f z xs) :=
-sorry
+  by
+  intro Stamp what_do tray stations stamp_start preservation
+  induction stations generalizing tray with
+  | nil => exact stamp_start
+  | cons x rest inductionhyp =>  exact inductionhyp (what_do tray x) (preservation tray x stamp_start)
+
 
 /- ### 3.3 (2 points).
 
@@ -330,14 +366,16 @@ the lemma `List.length_map` useful.) -/
 theorem length_appendToAll : ∀ (xs ys : List String),
   List.length xs = List.length (appendToAll xs ys) :=
 λ xs ys => foldl_oneplace_invariant
-  sorry
-  sorry
-  sorry
-  sorry
+  (λ acc => List.length xs = List.length acc)
+  (λ acc y => List.map (λ x => x ++ y) acc)
+  xs
+  ys
   (by
-     sorry)
+     rfl)
   (by
-     sorry)
+     intro tray sticker hyp
+     rw [List.length_map]
+     exact hyp)
 
 /- While `foldl_oneplace_invariant` is useful, it's not quite powerful enough
 to prove the invariance of certain properties we might care about. We'll explore
@@ -365,6 +403,10 @@ it goes wrong. (Make sure to comment out any scratch work before submitting.) -/
 
 /-
 Write your answer to part 4 here
+
+Because we are essentially adding something to the list
+everytime we apply it, so then the invariant isn't actually preserved
+until the very end
 -/
 
 /- To prove the desired property of `fold_reverse`, we'll need a more
@@ -392,7 +434,11 @@ We have stated this proof technique below. Prove its correctness. -/
     (hpres : ∀ (acc : α) (x : β) (xs' : List β),
                P acc (x :: xs') → P (f acc x) xs'),
     P (List.foldl f z xs) [] :=
-sorry
+  by
+    intro Stamp station_do tray all_stations start_tray tray_ticket_stamped
+    induction all_stations generalizing tray with
+      | nil => exact start_tray
+      | cons x rest ih => exact ih (station_do tray x) (tray_ticket_stamped tray x rest start_tray)
 
 /- ### 3.6 (2 points).
 
@@ -421,12 +467,14 @@ value of type `τ x` is expected. -/
   ∀ (xs : List α), List.length xs = List.length (fold_reverse xs) :=
 λ (xs : List α) =>
   foldl_twoplace_invariant
-    sorry
-    sorry
-    sorry
-    sorry
-    (by sorry)
-    (by sorry)
+    (λ acc rest => List.length xs = List.length acc + List.length rest)
+    (λ acc x => x :: acc)
+    []
+    xs
+    (by simp)
+    (by
+       intro acc x rest h
+       simp [List.length_cons, h, Nat.add_comm, Nat.add_left_comm])
 
 
 
